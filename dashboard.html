@@ -293,6 +293,16 @@
 
   </div>
 
+  <!-- LINHA DO TEMPO -->
+  <div class="section-title">Linha do Tempo — Acessos por Hora</div>
+  <div class="charts-grid">
+    <div class="card col-12">
+      <div class="card-title">Acessos por Hora desde o Lançamento</div>
+      <div class="card-sub">Jogadores que entraram em alguma sala — agrupados por hora (Horário de Brasília, UTC-3)</div>
+      <canvas id="chart-timeline" class="tall"></canvas>
+    </div>
+  </div>
+
   <!-- REDDIT -->
   <div class="section-title">Marketing — Reddit</div>
   <div class="reddit-grid" id="reddit-grid">
@@ -578,6 +588,7 @@ function renderAll(salas, jogs) {
   renderTemas(salas);
   renderPosicao(salas, jogs);
   renderTabela(salas, jogs);
+  renderTimeline(jogs);
 }
 
 // ── Gráfico: salas por dia ───────────────────────────────────────────────────────
@@ -779,6 +790,93 @@ function renderPosicao(salas, jogs) {
       scales: {
         x: { ticks:{color:def.color}, grid:{display:false} },
         y: { min:0, max:100, ticks:{color:def.color, stepSize:20}, grid:{color:def.gridColor} }
+      }
+    }
+  });
+}
+
+// ── Gráfico: linha do tempo de acessos por hora ───────────────────────────────────
+function renderTimeline(jogs) {
+  const ctx = document.getElementById('chart-timeline');
+  if (!jogs.length) {
+    ctx.parentElement.querySelector('.card-sub').textContent = 'Nenhum acesso registrado ainda.';
+    return;
+  }
+
+  // Primeiro acesso, arredondado para hora cheia em UTC-3
+  const firstMs = new Date(jogs[0].created_at).getTime() - 3 * 3600000;
+  const start = new Date(firstMs);
+  start.setUTCMinutes(0, 0, 0);
+
+  const nowUTC3 = new Date(Date.now() - 3 * 3600000);
+  nowUTC3.setUTCMinutes(0, 0, 0);
+
+  // Buckets hora a hora
+  const buckets = {};
+  for (let t = new Date(start); t <= nowUTC3; t = new Date(t.getTime() + 3600000)) {
+    buckets[t.toISOString().slice(0, 13)] = 0;
+  }
+
+  jogs.forEach(j => {
+    const key = new Date(new Date(j.created_at).getTime() - 3 * 3600000).toISOString().slice(0, 13);
+    if (key in buckets) buckets[key]++;
+  });
+
+  const keys = Object.keys(buckets);
+  const labels = keys.map(k => {
+    const [date, hour] = k.split('T');
+    const [, m, d] = date.split('-');
+    return `${d}/${m} ${hour}h`;
+  });
+  const data = Object.values(buckets);
+  const marketingKeys = keys.filter(k => k.startsWith(MARKETING_DATE));
+
+  destroyChart('timeline');
+  const def = chartDefaults();
+  charts['timeline'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Acessos',
+          data,
+          borderColor: COLORS[0],
+          backgroundColor: hex2rgba(COLORS[0], 0.15),
+          borderWidth: 2,
+          tension: 0.3,
+          fill: true,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+        },
+        // Área destacada para o dia de marketing
+        {
+          label: 'Dia Reddit',
+          data: keys.map((k, i) => marketingKeys.includes(k) ? data[i] : null),
+          borderColor: 'rgba(193,154,107,0.9)',
+          backgroundColor: 'rgba(193,154,107,0.25)',
+          borderWidth: 1.5,
+          tension: 0.3,
+          fill: true,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          spanGaps: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, labels: { color: def.color, font: { size: 12 } } },
+        tooltip: {
+          backgroundColor: def.tooltipBg, titleColor: def.tooltipColor, bodyColor: def.tooltipColor,
+          callbacks: { label: c => c.dataset.label === 'Dia Reddit' ? null : ` ${c.raw} acesso(s)` }
+        }
+      },
+      scales: {
+        x: { ticks: { color: def.color, font: { size: 10 }, maxTicksLimit: 32, maxRotation: 45 }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: def.color, precision: 0 }, grid: { color: def.gridColor } }
       }
     }
   });
